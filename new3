@@ -402,3 +402,189 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps({'error': str(e), 'message': 'Error processing request'})
         }
+
+
+
+
+
+
+
+
+DROP VIEW IF EXISTS hana.vw_openbrand_pricings;
+--PRICINGS
+DROP TABLE IF EXISTS etl.stg1_openbrand_pricings;
+CREATE TABLE etl.stg1_openbrand_pricings (
+    published_date date,
+    net_price FLOAT,
+    shelf_price FLOAT,
+    in_stock boolean,
+    brand VARCHAR(100),
+    category_name VARCHAR,
+    merchant VARCHAR(100),
+    merchant_sku VARCHAR(100),
+    product VARCHAR(100),
+    part_number VARCHAR(100),
+    product_location VARCHAR(100),
+    deleted boolean,
+    date_collected date,
+    promo_percentage VARCHAR(50),
+    on_promo boolean,
+    on_ad boolean,
+    updated_at VARCHAR(100)
+) DISTSTYLE AUTO SORTKEY AUTO;
+
+DROP TABLE IF EXISTS etl.stg2_openbrand_pricings;
+CREATE TABLE etl.stg2_openbrand_pricings (
+    published_date date,
+    net_price FLOAT,
+    shelf_price FLOAT,
+    in_stock boolean,
+    brand VARCHAR(100),
+    category_name VARCHAR,
+    merchant VARCHAR(100),
+    merchant_sku VARCHAR(100),
+    product VARCHAR(100),
+    part_number VARCHAR(100),
+    product_location VARCHAR(100),
+    deleted boolean,
+    date_collected date,
+    promo_percentage VARCHAR(50),
+    on_promo boolean,
+    on_ad boolean,
+    updated_at VARCHAR(100)
+) DISTSTYLE AUTO SORTKEY AUTO;
+
+DROP TABLE IF EXISTS data.openbrand_pricings;
+CREATE TABLE data.openbrand_pricings (
+    published_date date,
+    net_price FLOAT,
+    shelf_price FLOAT,
+    in_stock boolean,
+    brand VARCHAR(100),
+    category_name VARCHAR,
+    merchant VARCHAR(100),
+    merchant_sku VARCHAR(100),
+    product VARCHAR(100),
+    part_number VARCHAR(100),
+    product_location VARCHAR(100),
+    deleted boolean,
+    date_collected date,
+    promo_percentage VARCHAR(50),
+    on_promo boolean,
+    on_ad boolean,
+    updated_at VARCHAR(100)
+) DISTSTYLE AUTO SORTKEY AUTO;
+
+--CATEGORIES
+DROP TABLE IF EXISTS data.dim_openbrand_categories;
+CREATE TABLE data.dim_openbrand_categories (
+    name VARCHAR(100),
+    full_name VARCHAR(100),
+    frequency VARCHAR(50),
+    published_date date,
+    ecom_price_change INT,
+    ecom_and_retail_com_channel_variance INT,
+    track_zero_prices boolean,
+    display_cents boolean,
+    publish_product_location boolean
+) DISTSTYLE AUTO SORTKEY AUTO;
+
+-- MERCHANTS
+DROP TABLE IF EXISTS data.dim_openbrand_merchants;
+CREATE TABLE data.dim_openbrand_merchants (
+    name VARCHAR(100),
+    type VARCHAR(50),
+    channel VARCHAR(50),
+    country_code VARCHAR(3)
+) DISTSTYLE AUTO SORTKEY AUTO;
+
+--PRODUCTS
+DROP TABLE IF EXISTS data.dim_openbrand_products;
+CREATE TABLE data.dim_openbrand_products (
+   name VARCHAR(100),
+   part_number VARCHAR(100),
+   brand_name VARCHAR(100),
+   category_name VARCHAR(100),
+   product_status VARCHAR(50),
+   product_version_id INT,
+   manufacturer_suggested_retail_price FLOAT,
+   estimated_retail_price FLOAT,
+   net_estimated_price FLOAT,
+   average_online_price FLOAT,
+   average_retail_dot_com_net_price FLOAT,
+   average_retail_dot_com_weekly_net_price FLOAT,
+   average_retail_net_price FLOAT,
+   average_retail_weekly_net_price FLOAT,
+   average_ecom_net_price FLOAT,
+   average_ecom_weekly_net_price FLOAT,
+   most_frequent_price FLOAT,
+   most_frequent_weekly_price FLOAT,
+   most_frequent_monthly_price FLOAT,
+   most_frequent_retail_weekly_price FLOAT,
+   most_frequent_retail_net_price FLOAT,
+   deleted boolean
+) DISTSTYLE AUTO SORTKEY AUTO;
+
+
+CREATE VIEW hana.vw_openbrand_pricings AS
+SELECT 
+    p.published_date as pricings_published_date,
+    p.net_price as pricings_net_price,
+    p.shelf_price as pricings_shelf_price,
+    p.in_stock as pricings_in_stock,
+    p.brand as pricings_brand,
+    p.category_name as pricings_category_name,
+    p.merchant as pricings_merchant,
+    p.merchant_sku as pricings_merchant_sku,
+    p.product as pricings_product,
+    p.part_number as pricings_part_number,
+    p.product_location as pricings_product_location,
+    p.deleted as pricings_deleted,
+    p.date_collected as pricings_date_collected,
+    p.promo_percentage as pricings_promo_percentage,
+    p.on_promo as pricings_on_promo,
+    p.on_ad as pricings_on_ad,
+    p.updated_at as pricings_updated_at,
+    c.full_name as categories_full_name,
+    c.frequency as categories_frequency,
+    c.published_date as categories_published_date,
+    c.ecom_price_change as categories_ecom_price_change,
+    c.ecom_and_retail_com_channel_variance as categories_ecom_and_retail_com_channel_variance,
+    c.track_zero_prices as categories_track_zero_prices,
+    c.display_cents as categories_display_cents,
+    c.publish_product_location as categories_publish_product_location,
+    m."type" as merchants_type,
+    m.channel as merchants_channel,
+    m.country_code as merchants_country_code,
+    prod.name as products_name,
+    prod.brand_name as products_brand_name,
+    prod.product_status as products_product_status,
+    prod.product_version_id as products_product_version_id,
+    prod.manufacturer_suggested_retail_price as products_manufacturer_suggested_retail_price,
+    prod.estimated_retail_price as products_estimated_retail_price,
+    prod.net_estimated_price as products_net_estimated_price,
+    prod.average_online_price as products_average_online_price,
+    prod.average_retail_dot_com_net_price as products_average_retail_dot_com_net_price,
+    prod.average_retail_dot_com_weekly_net_price as products_average_retail_dot_com_weekly_net_price,
+    prod.average_retail_net_price as products_average_retail_net_price,
+    prod.average_retail_weekly_net_price as products_average_retail_weekly_net_price,
+    prod.average_ecom_net_price as products_average_ecom_net_price,
+    prod.average_ecom_weekly_net_price as products_average_ecom_weekly_net_price,
+    prod.most_frequent_price as products_most_frequent_price,
+    prod.most_frequent_weekly_price as products_most_frequent_weekly_price,
+    prod.most_frequent_monthly_price as products_most_frequent_monthly_price,
+    prod.most_frequent_retail_weekly_price as products_most_frequent_retail_weekly_price,
+    prod.most_frequent_retail_net_price as products_most_frequent_retail_net_price,
+    prod.deleted as products_deleted
+FROM data.openbrand_pricings p
+LEFT JOIN data.dim_openbrand_categories c 
+    ON p.category_name = c.name
+LEFT JOIN data.dim_openbrand_merchants m 
+    ON p.merchant = m.name
+LEFT JOIN data.dim_openbrand_products prod 
+    ON p.part_number = prod.part_number 
+    AND p.category_name = prod.category_name;
+
+GRANT SELECT ON ALL tables IN SCHEMA  hana TO hana;
+Grant usage on schema data to hana;
+GRANT SELECT ON ALL tables IN SCHEMA hana TO GROUP read_all;
