@@ -1,0 +1,224 @@
+#CATEGORIES
+import requests
+from requests.exceptions import HTTPError
+import pandas as pd
+
+CLIENT_ID = "aZf5mK5tpg2MC3gz2vKOFEw7l4AEPi55ZblffRMysYE"
+CLIENT_SECRET = "mw1zUmViH_EhpCS-s4uyhOIchOtH7kYfbxoNZMxMBZg"
+TOKEN_URL = "https://api.gapintelligence.com/oauth/token"
+CAT_URL = "https://api.gapintelligence.com/api/v1/categories"
+
+def get_access_token(client_id, client_secret):
+    payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "client_credentials",
+        "scope": "products:read pricings:read"
+    }
+    try:
+        response = requests.post(TOKEN_URL, data=payload)
+        response.raise_for_status()
+        return response.json()["access_token"]
+    except Exception as err: print(f"Other error occurred: {err}")
+
+def get_categories(access_token, page=1):
+    headers = {"Authorization": f"Bearer {access_token}"}
+    params = {"page": page, "per_page": 100}
+    try:
+        response = requests.get(CAT_URL, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    except Exception as err:
+        print(f"Error occurred: {err}")
+        return None
+
+access_token = get_access_token(CLIENT_ID, CLIENT_SECRET)
+if access_token: print("Access token obtained successfully.")
+else: print("Failed to obtain access token.")
+
+all_categories = []
+page = 1
+total_pages = None
+while True:
+    categories = get_categories(access_token, page)
+    if not categories:
+        break
+    if total_pages is None:
+        total_pages = categories['meta']['pagination']['total_pages']
+    categories_list = categories['data']
+    all_categories.extend(categories_list)
+    print(f"procesing:  {page}/{total_pages}")
+    if page >= total_pages:
+        break
+    page += 1
+if all_categories:
+    print("Categories recovered")
+    attributes_list = [category['attributes'] for category in all_categories]
+    df_categories = pd.DataFrame(attributes_list)
+    df_categories['id'] = [category['id'] for category in all_categories]
+    cols = ['id'] + [col for col in df_categories.columns if col != 'id']
+    df_categories = df_categories[cols]
+    print('CATEGORIES:', len(df_categories))
+    # df_categories.to_csv('/content/df_categories.csv', index=False)
+else:
+    print("error when recovering categories")
+
+
+
+
+
+
+
+
+
+import requests
+import pandas as pd
+from datetime import datetime, timedelta
+import os
+from utils import Utils
+import json
+
+utils_obj = Utils('AWS')
+
+def get_access_token(client_id, client_secret):
+    payload = {"client_id": client_id, "client_secret": client_secret, "grant_type": "client_credentials", "scope": "products:read pricings:read"}
+    try:
+        response = requests.post("https://api.gapintelligence.com/oauth/token", data=payload)
+        response.raise_for_status()
+        return response.json()["access_token"]
+    except Exception as err:
+        print(f"Error obtaining access token: {err}")
+        raise
+
+def get_pricings(access_token, url, page=1):
+    headers = {"Authorization": f"Bearer {access_token}"}
+    params = {"page": page, "per_page": 1000}
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    except Exception as err:
+        print(f"Error retrieving pricing data: {err}")
+        raise
+
+def process_data(pricing_data):
+    attributes_list = [pricing['attributes'] for pricing in pricing_data]
+    df = pd.DataFrame(attributes_list)
+    columns = [
+        'published_date', 'net_price', 'shelf_price', 'in_stock', 'brand',
+        'category_name', 'merchant', 'merchant_sku', 'product', 'part_number',
+        'product_location', 'deleted', 'date_collected', 'promo_percentage',
+        'on_promo', 'on_ad', 'updated_at']
+
+    df = df[columns].copy()
+
+    # Cast fields
+    df['published_date'] = pd.to_datetime(df['published_date']).dt.date
+    df['date_collected'] = pd.to_datetime(df['date_collected']).dt.date
+    df['updated_at'] = pd.to_datetime(df['updated_at']).dt.date
+    
+    # Handle numeric columns
+    numeric_columns = ['net_price', 'shelf_price', 'promo_percentage']
+    for col in numeric_columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        if col in ['net_price', 'shelf_price']:
+            df[col] = df[col].round(2)
+        elif col == 'promo_percentage':
+            df[col] = df[col].round(4)
+    
+    # Cast boolean columns
+    boolean_columns = ['in_stock', 'deleted', 'on_promo', 'on_ad']
+    for col in boolean_columns:
+        df[col] = df[col].astype(bool)
+    
+    # Handle string columns
+    string_columns = ['brand', 'category_name', 'merchant', 'merchant_sku',
+                     'product', 'part_number', 'product_location']
+    for col in string_columns:
+        df[col] = df[col].fillna('')
+        df[col] = df[col].astype(str)
+
+    return df
+
+def save_to_s3(df, filename):
+    env = utils_obj.get_environment()
+    bucket_name = f"datalake-{env}-s3-data"
+    local_file_path = f"/tmp/{filename}"
+    df.to_csv(local_file_path, index=False)
+    utils_obj.inf_file_put(local_file_path, bucket_name, f"OpenBrand/{filename}")
+    os.remove(local_file_path)
+    print(f"File uploaded to s3://{bucket_name}/OpenBrand/{filename}")
+
+def get_target_date(custom_date=None):
+    if custom_date:
+        try:
+            # Parse the custom date if provided, i.e.: {"custom_date": "2025-02-17"}
+            return datetime.strptime(custom_date, '%Y-%m-%d').date()
+        except ValueError as e:
+            raise ValueError(f"Invalid date format. Please use YYYY-MM-DD format: {e}")
+    # If no custom date, calculate T-1
+    else:
+        current_date = datetime.now()
+        return (current_date - timedelta(days=1)).date()
+
+def lambda_handler(event, context):
+    try:
+        # Get custom date from event if provided
+        custom_date = None
+        if event: custom_date = event.get('custom_date')
+
+        # Get the target date
+        target_date = get_target_date(custom_date)
+        print(f"Processing data for date: {target_date}")
+
+        # Get credentials from Secrets Manager
+        creds = utils_obj.get_secrets_from_secret_manager('OpenBrand-api-creds')
+        print('creds created')
+        client_id = creds['client_id']
+        client_secret = creds['client_secret']
+        base_url = creds['base_url']
+        # Construct API URL with target date
+        url = f"{base_url}?country_code=US&date_collected={target_date}&category_name=Dishwashers,Freezers,Laundry,OTR,Ranges,Refrigerators,Countertop%20Microwaves,Cooktops%20%26%20Wall%20Ovens"
+        # Get access token
+        access_token = get_access_token(client_id, client_secret)
+        print("Access token created")
+
+        # Initialize variables for pagination
+        all_data = []
+        page = 1
+        total_pages = None
+
+        # Retrieve all pages
+        while True:
+            pricings = get_pricings(access_token, url, page)
+            if not pricings:
+                break
+            if total_pages is None:
+                total_pages = pricings['meta']['pagination']['total_pages']
+            all_data.extend(pricings['data'])
+            print(f"Processing page {page}/{total_pages}")
+            if page >= total_pages:
+                break
+            page += 1
+
+        # Process all data
+        if all_data:
+            df = process_data(all_data)
+            # Generate filename with target date
+            filename = f"OpenBrand_Pricings_{target_date.strftime('%Y-%m-%d')}.csv"
+            # Save to S3
+            save_to_s3(df, filename)
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps("message": "Successful!")
+                    }
+        else:
+            return {
+                'statusCode': 200,
+                'body': json.dumps('no data to process')
+            }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': str(e), 'message': 'Error processing request'})
+        }
