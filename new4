@@ -1,0 +1,468 @@
+import requests
+import pandas as pd
+from datetime import datetime, timedelta
+import os
+from utils import Utils
+import json
+import ast  # For safer literal_eval when parsing specifications
+
+utils_obj = Utils('AWS')
+
+def get_access_token(client_id, client_secret):
+    payload = {"client_id": client_id, "client_secret": client_secret, "grant_type": "client_credentials", "scope": "products:read pricings:read"}
+    try:
+        response = requests.post("https://api.gapintelligence.com/oauth/token", data=payload)
+        response.raise_for_status()
+        return response.json()["access_token"]
+    except Exception as err:
+        print(f"Error obtaining access token: {err}")
+        raise
+
+def get_data(access_token, url, page=1):
+    headers = {"Authorization": f"Bearer {access_token}"}
+    params = {"page": page, "per_page": 1000}
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    except Exception as err:
+        print(f"Error retrieving data: {err}")
+        raise
+
+def process_data(pricing_data):
+    attributes_list = [pricing['attributes'] for pricing in pricing_data]
+    df = pd.DataFrame(attributes_list)
+    columns = [
+        'published_date', 'net_price', 'shelf_price', 'in_stock', 'brand',
+        'category_name', 'merchant', 'merchant_sku', 'product', 'part_number',
+        'product_location', 'deleted', 'date_collected', 'promo_percentage',
+        'on_promo', 'on_ad', 'updated_at']
+
+    df = df[columns].copy()
+
+    # Cast fields
+    df['published_date'] = pd.to_datetime(df['published_date']).dt.date
+    df['date_collected'] = pd.to_datetime(df['date_collected']).dt.date
+    df['updated_at'] = pd.to_datetime(df['updated_at']).dt.date
+    
+    # Handle numeric columns
+    numeric_columns = ['net_price', 'shelf_price', 'promo_percentage']
+    for col in numeric_columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        if col in ['net_price', 'shelf_price']:
+            df[col] = df[col].round(2)
+        elif col == 'promo_percentage':
+            df[col] = df[col].round(4)
+    
+    # Cast boolean columns
+    boolean_columns = ['in_stock', 'deleted', 'on_promo', 'on_ad']
+    for col in boolean_columns:
+        df[col] = df[col].astype(bool)
+    
+    # Handle string columns
+    string_columns = ['brand', 'category_name', 'merchant', 'merchant_sku',
+                     'product', 'part_number', 'product_location']
+    for col in string_columns:
+        df[col] = df[col].fillna('')
+        df[col] = df[col].astype(str)
+
+    return df
+
+def process_merchant_data(merchant_data):
+    attributes_list = [merchant['attributes'] for merchant in merchant_data]
+    df = pd.DataFrame(attributes_list)
+    
+    # Only keep the columns needed for the database table
+    columns_to_keep = ['name', 'type', 'channel', 'country_code']
+    
+    # Filter columns if they exist, ignore if not
+    existing_columns = [col for col in columns_to_keep if col in df.columns]
+    df = df[existing_columns].copy()
+    
+    # Check if any required columns are missing and add them with empty values
+    for col in columns_to_keep:
+        if col not in df.columns:
+            df[col] = ''
+    
+    return df
+
+def process_category_data(category_data):
+    attributes_list = [category['attributes'] for category in category_data]
+    df = pd.DataFrame(attributes_list)
+    
+    # Only keep the columns needed for the database table
+    columns_to_keep = [
+        'name', 
+        'full_name', 
+        'frequency', 
+        'published_date', 
+        'ecom_price_change', 
+        'ecom_and_retail_com_channel_variance', 
+        'track_zero_prices', 
+        'display_cents', 
+        'publish_product_location'
+    ]
+    
+    # Filter columns if they exist, ignore if not
+    existing_columns = [col for col in columns_to_keep if col in df.columns]
+    df = df[existing_columns].copy()
+    
+    # Check if any required columns are missing and add them with empty values
+    for col in columns_to_keep:
+        if col not in df.columns:
+            if col == 'published_date':
+                df[col] = None  # Use None for date columns
+            elif col in ['track_zero_prices', 'display_cents', 'publish_product_location']:
+                df[col] = False  # Default boolean columns to False
+            elif col in ['ecom_price_change', 'ecom_and_retail_com_channel_variance']:
+                df[col] = 0  # Default integer columns to 0
+            else:
+                df[col] = ''  # Default string columns to empty string
+    
+    # Convert date columns
+    if 'published_date' in df.columns:
+        df['published_date'] = pd.to_datetime(df['published_date']).dt.date
+    
+    return df
+
+def process_product_data(product_data):
+    attributes_list = []
+    specification_dicts = []
+    
+    # Process main attributes and collect specifications
+    for product in product_data:
+        attributes = product['attributes'].copy()
+        product_id = product['id']
+        
+        # Extract specification data if it exists
+        if 'specification' in attributes:
+            try:
+                spec = attributes['specification']
+                # Try to process specification as JSON if it's a string
+                if isinstance(spec, str):
+                    try:
+                        spec_dict = json.loads(spec)
+                    except:
+                        # If JSON parsing fails, try Python's literal_eval (safer than eval)
+                        spec_dict = ast.literal_eval(spec)
+                else:
+                    spec_dict = spec
+                
+                # Get the nested data dictionary
+                if 'data' in spec_dict:
+                    data_dict = spec_dict['data']
+                    # Add product_id for joining later
+                    data_dict['product_id'] = product_id
+                    specification_dicts.append(data_dict)
+            except Exception as e:
+                print(f"Error processing specification for product {product_id}: {e}")
+        
+        # Remove links if present
+        if 'links' in attributes:
+            del attributes['links']
+            
+        # Add ID to attributes
+        attributes['product_id'] = product_id
+        attributes_list.append(attributes)
+    
+    # Create main product DataFrame
+    df = pd.DataFrame(attributes_list)
+    
+    # Only keep the columns needed for the database table
+    columns_to_keep = [
+        'name',
+        'part_number',
+        'brand_name',
+        'category_name',
+        'product_status',
+        'product_version_id',
+        'manufacturer_suggested_retail_price',
+        'estimated_retail_price',
+        'net_estimated_price',
+        'average_online_price',
+        'average_retail_dot_com_net_price',
+        'average_retail_dot_com_weekly_net_price',
+        'average_retail_net_price',
+        'average_retail_weekly_net_price',
+        'average_ecom_net_price',
+        'average_ecom_weekly_net_price',
+        'most_frequent_price',
+        'most_frequent_weekly_price',
+        'most_frequent_monthly_price',
+        'most_frequent_retail_weekly_price',
+        'most_frequent_retail_net_price',
+        'deleted'
+    ]
+    
+    # Filter columns if they exist, ignore if not
+    existing_columns = [col for col in columns_to_keep if col in df.columns]
+    df = df[existing_columns].copy()
+    
+    # Check if any required columns are missing and add them with empty values
+    for col in columns_to_keep:
+        if col not in df.columns:
+            if col == 'deleted':
+                df[col] = False  # Default boolean columns to False
+            elif col == 'product_version_id':
+                df[col] = 0  # Default integer columns to 0
+            elif col in [
+                'manufacturer_suggested_retail_price',
+                'estimated_retail_price',
+                'net_estimated_price',
+                'average_online_price',
+                'average_retail_dot_com_net_price',
+                'average_retail_dot_com_weekly_net_price',
+                'average_retail_net_price',
+                'average_retail_weekly_net_price',
+                'average_ecom_net_price',
+                'average_ecom_weekly_net_price',
+                'most_frequent_price',
+                'most_frequent_weekly_price',
+                'most_frequent_monthly_price',
+                'most_frequent_retail_weekly_price',
+                'most_frequent_retail_net_price'
+            ]:
+                df[col] = 0.0  # Default float columns to 0.0
+            else:
+                df[col] = ''  # Default string columns to empty string
+    
+    # Convert numeric columns
+    float_columns = [
+        'manufacturer_suggested_retail_price',
+        'estimated_retail_price',
+        'net_estimated_price',
+        'average_online_price',
+        'average_retail_dot_com_net_price',
+        'average_retail_dot_com_weekly_net_price',
+        'average_retail_net_price',
+        'average_retail_weekly_net_price',
+        'average_ecom_net_price',
+        'average_ecom_weekly_net_price',
+        'most_frequent_price',
+        'most_frequent_weekly_price',
+        'most_frequent_monthly_price',
+        'most_frequent_retail_weekly_price',
+        'most_frequent_retail_net_price'
+    ]
+    
+    for col in float_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+    
+    # Convert integer columns
+    if 'product_version_id' in df.columns:
+        df['product_version_id'] = pd.to_numeric(df['product_version_id'], errors='coerce').fillna(0).astype(int)
+    
+    # Convert boolean columns
+    if 'deleted' in df.columns:
+        df['deleted'] = df['deleted'].astype(bool)
+    
+    return df, specification_dicts
+
+def save_to_s3(df, filename):
+    env = utils_obj.get_environment()
+    bucket_name = f"datalake-{env}-s3-data"
+    local_file_path = f"/tmp/{filename}"
+    df.to_csv(local_file_path, index=False)
+    utils_obj.inf_file_put(local_file_path, bucket_name, f"OpenBrand/{filename}")
+    os.remove(local_file_path)
+    print(f"File uploaded to s3://{bucket_name}/OpenBrand/{filename}")
+
+def get_target_date(custom_date=None):
+    if custom_date:
+        try:
+            # Parse the custom date if provided, i.e.: {"custom_date": "2025-02-17"}
+            return datetime.strptime(custom_date, '%Y-%m-%d').date()
+        except ValueError as e:
+            raise ValueError(f"Invalid date format. Please use YYYY-MM-DD format: {e}")
+    # If no custom date, calculate T-1
+    else:
+        current_date = datetime.now()
+        return (current_date - timedelta(days=1)).date()
+
+def lambda_handler(event, context):
+    try:
+        # Get custom date from event if provided
+        custom_date = None
+        if event: custom_date = event.get('custom_date')
+
+        # Get the target date
+        target_date = get_target_date(custom_date)
+        print(f"Processing data for date: {target_date}")
+
+        # Get credentials from Secrets Manager
+        creds = utils_obj.get_secrets_from_secret_manager('OpenBrand-api-creds')
+        print('creds created')
+        client_id = creds['client_id']
+        client_secret = creds['client_secret']
+        base_url = creds['base_url']
+        
+        # Construct API URL with target date
+        url = f"{base_url}?country_code=US&date_collected={target_date}&category_name=Dishwashers,Freezers,Laundry,OTR,Ranges,Refrigerators,Countertop%20Microwaves,Cooktops%20%26%20Wall%20Ovens"
+        
+        # Get access token
+        access_token = get_access_token(client_id, client_secret)
+        print("Access token created")
+
+        # Initialize variables for pagination
+        all_data = []
+        page = 1
+        total_pages = None
+
+        # Retrieve all pages
+        while True:
+            pricings = get_data(access_token, url, page)
+            if not pricings:
+                break
+            if total_pages is None:
+                total_pages = pricings['meta']['pagination']['total_pages']
+            all_data.extend(pricings['data'])
+            print(f"Processing page {page}/{total_pages}")
+            if page >= total_pages:
+                break
+            page += 1
+
+        # Process all data
+        if all_data:
+            df = process_data(all_data)
+            # Generate filename with target date
+            filename = f"OpenBrand_Pricings_{target_date.strftime('%Y-%m-%d')}.csv"
+            # Save to S3
+            save_to_s3(df, filename)
+            
+        # Check if today is Monday or if we're using a custom date that falls on Monday
+        is_monday = False
+        if custom_date:
+            # For custom date, check if it's a Monday
+            date_obj = datetime.strptime(custom_date, '%Y-%m-%d')
+            is_monday = date_obj.weekday() == 0
+        else:
+            # For current date, check if it's a Monday
+            is_monday = datetime.now().weekday() == 0
+            
+        # If it's Monday, also fetch additional data
+        if is_monday:
+            print("Today is Monday - fetching merchant, category, and product data")
+            
+            # Fetch merchant data
+            merchants_url = "https://api.gapintelligence.com/api/v1/merchants"
+            
+            # Initialize variables for pagination
+            all_merchants = []
+            page = 1
+            total_pages = None
+            
+            # Retrieve all merchant pages
+            while True:
+                merchants = get_data(access_token, merchants_url, page)
+                if not merchants:
+                    break
+                if total_pages is None:
+                    total_pages = merchants['meta']['pagination']['total_pages']
+                all_merchants.extend(merchants['data'])
+                print(f"Processing merchants page {page}/{total_pages}")
+                if page >= total_pages:
+                    break
+                page += 1
+                
+            # Process merchant data
+            if all_merchants:
+                df_merchants = process_merchant_data(all_merchants)
+                # Generate filename with target date
+                merchant_filename = f"OpenBrand_Merchants_{target_date.strftime('%Y-%m-%d')}.csv"
+                # Save to S3
+                save_to_s3(df_merchants, merchant_filename)
+                print(f"MERCHANTS: {len(df_merchants)}")
+            else:
+                print("No merchant data to process")
+                
+            # Fetch category data
+            categories_url = "https://api.gapintelligence.com/api/v1/categories"
+            
+            # Initialize variables for pagination
+            all_categories = []
+            page = 1
+            total_pages = None
+            
+            # Retrieve all category pages
+            while True:
+                categories = get_data(access_token, categories_url, page)
+                if not categories:
+                    break
+                if total_pages is None:
+                    total_pages = categories['meta']['pagination']['total_pages']
+                all_categories.extend(categories['data'])
+                print(f"Processing categories page {page}/{total_pages}")
+                if page >= total_pages:
+                    break
+                page += 1
+                
+            # Process category data
+            if all_categories:
+                df_categories = process_category_data(all_categories)
+                # Generate filename with target date
+                category_filename = f"OpenBrand_Categories_{target_date.strftime('%Y-%m-%d')}.csv"
+                # Save to S3
+                save_to_s3(df_categories, category_filename)
+                print(f"CATEGORIES: {len(df_categories)}")
+            else:
+                print("No category data to process")
+            
+            # Fetch product data
+            products_url = "https://api.gapintelligence.com/api/v1/products?country_code=us&category_name=Dishwashers,Freezers,Laundry,OTR,Ranges,Refrigerators,Countertop%20Microwaves,Cooktops%20%26%20Wall%20Ovens&include=specification"
+            
+            # Initialize variables for pagination
+            all_products = []
+            page = 1
+            total_pages = None
+            
+            # Retrieve all product pages
+            while True:
+                products = get_data(access_token, products_url, page)
+                if not products:
+                    break
+                if total_pages is None:
+                    total_pages = products['meta']['pagination']['total_pages']
+                all_products.extend(products['data'])
+                if page % 10 == 0:
+                    print(f"Processing products page {page}/{total_pages}")
+                if page >= total_pages:
+                    break
+                page += 1
+                
+            # Process product data
+            if all_products:
+                df_products, specification_dicts = process_product_data(all_products)
+                
+                # Generate filename with target date
+                product_filename = f"OpenBrand_Products_{target_date.strftime('%Y-%m-%d')}.csv"
+                # Save to S3
+                save_to_s3(df_products, product_filename)
+                print(f"PRODUCTS: {len(df_products)}")
+                
+                # Process and save specifications if available
+                if specification_dicts:
+                    try:
+                        # Create DataFrame from collected specification data
+                        df_specifications = pd.DataFrame(specification_dicts)
+                        
+                        # Generate filename for specifications
+                        specs_filename = f"OpenBrand_Product_Specifications_{target_date.strftime('%Y-%m-%d')}.csv"
+                        
+                        # Save specifications to S3
+                        save_to_s3(df_specifications, specs_filename)
+                        print(f"SPECIFICATIONS: {len(df_specifications)}")
+                    except Exception as e:
+                        print(f"Error saving specifications: {e}")
+            else:
+                print("No product data to process")
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({"message": "Successful!"})
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': str(e), 'message': 'Error processing request'})
+        }}
