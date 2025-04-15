@@ -1,3 +1,183 @@
+#PRODUCTS
+import requests
+from requests.exceptions import HTTPError
+import pandas as pd
+
+CLIENT_ID = "aZf5mK5tpg2MC3gz2vKOFEw7l4AEPi55ZblffRMysYE"
+CLIENT_SECRET = "mw1zUmViH_EhpCS-s4uyhOIchOtH7kYfbxoNZMxMBZg"
+TOKEN_URL = "https://api.gapintelligence.com/oauth/token"
+PRO_URL = "https://api.gapintelligence.com/api/v1/products?country_code=us&category_name=Dishwashers,Freezers,Laundry,OTR,Ranges,Refrigerators,Countertop%20Microwaves,Cooktops%20%26%20Wall%20Ovens&include=specification"
+
+def get_access_token(client_id, client_secret):
+    payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "client_credentials",
+        "scope": "products:read pricings:read"
+    }
+    try:
+        response = requests.post(TOKEN_URL, data=payload)
+        response.raise_for_status()
+        return response.json()["access_token"]
+    except Exception as err: print(f"Other error occurred: {err}")
+
+def get_products(access_token, page=1):
+   headers = {"Authorization": f"Bearer {access_token}"}
+   params = {"page": page, "per_page": 100}
+   try:
+       response = requests.get(PRO_URL, headers=headers, params=params)
+       response.raise_for_status()
+       return response.json()
+   except Exception as err:
+       print(f"Error occurred: {err}")
+       return None
+
+access_token = get_access_token(CLIENT_ID, CLIENT_SECRET)
+if access_token: print("Access token obtained successfully.")
+else: print("Failed to obtain access token.")
+
+all_products = []
+page = 1
+total_pages = None
+
+while True:
+   products = get_products(access_token, page)
+   if not products:
+       break
+   if total_pages is None:
+       total_pages = products['meta']['pagination']['total_pages']
+   products_list = products['data']
+   all_products.extend(products_list)
+   if page % 10 == 0: print(f"Page {page}/{total_pages}")
+   if page >= total_pages:
+  #  if page >= 3:
+       break
+   page += 1
+if all_products:
+   print("Products recovered")
+   attributes_list = []
+   for product in all_products:
+       attributes = product['attributes'].copy()
+       if 'links' in attributes:
+           del attributes['links']
+       attributes_list.append(attributes)
+   df_products = pd.DataFrame(attributes_list)
+   df_products['id'] = [product['id'] for product in all_products]
+   cols = ['id'] + [col for col in df_products.columns if col != 'id']
+   df_products = df_products[cols]
+   print(f"PRODUCTS: {len(df_products)}")
+   df_products.to_csv('/content/df_products.csv', index=False)
+else:
+   print("Error when recovering products")
+
+
+
+#EXTRACT UNIQUE LIST OF FIELDS FROM SPECIFICATIONS FROM PRODUCTS ENDPOINT
+
+import pandas as pd
+import json
+import ast
+
+# Step 1: Read the CSV file
+df = pd.read_csv('/content/df_products.csv')
+
+# Step 2: Initialize an empty set to collect all unique keys
+all_fields = set()
+
+# Step 3: Process each cell in the specification column
+for spec_str in df['specification']:
+    try:
+        # First try to parse as JSON
+        try:
+            spec_dict = json.loads(spec_str)
+        except:
+            # If JSON parsing fails, try Python's literal_eval (safer than eval)
+            spec_dict = ast.literal_eval(spec_str)
+
+        # Get the nested data dictionary
+        if 'data' in spec_dict:
+            data_dict = spec_dict['data']
+            # Add all keys to our set
+            all_fields.update(data_dict.keys())
+    except Exception as e:
+        print(f"Error processing entry: {e}")
+
+# Step 4: Convert to sorted list if needed
+unique_fields = sorted(list(all_fields))
+
+print(f"Found {len(unique_fields)} unique fields:")
+print(unique_fields)
+
+
+#MERCHANTS
+import requests
+from requests.exceptions import HTTPError
+import pandas as pd
+
+CLIENT_ID = "aZf5mK5tpg2MC3gz2vKOFEw7l4AEPi55ZblffRMysYE"
+CLIENT_SECRET = "mw1zUmViH_EhpCS-s4uyhOIchOtH7kYfbxoNZMxMBZg"
+TOKEN_URL = "https://api.gapintelligence.com/oauth/token"
+MER_URL = "https://api.gapintelligence.com/api/v1/merchants"
+
+
+def get_access_token(client_id, client_secret):
+    payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "client_credentials",
+        "scope": "products:read pricings:read"
+    }
+    try:
+        response = requests.post(TOKEN_URL, data=payload)
+        response.raise_for_status()
+        return response.json()["access_token"]
+    except Exception as err: print(f"Other error occurred: {err}")
+
+def get_merchants(access_token, page=1):
+    headers = {"Authorization": f"Bearer {access_token}"}
+    params = {"page": page, "per_page": 100}
+    try:
+        response = requests.get(MER_URL, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    except Exception as err:
+        print(f"Error occurred: {err}")
+        return None
+
+access_token = get_access_token(CLIENT_ID, CLIENT_SECRET)
+if access_token: print("Access token obtained successfully.")
+else: print("Failed to obtain access token.")
+
+all_merchants = []
+page = 1
+total_pages = None
+while True:
+    merchants = get_merchants(access_token, page)
+    if not merchants:
+        break
+    if total_pages is None:
+        total_pages = merchants['meta']['pagination']['total_pages']
+    merchants_list = merchants['data']
+    all_merchants.extend(merchants_list)
+    print(f"Page:  {page}/{total_pages}")
+    if page >= total_pages:
+        break
+    page += 1
+if all_merchants:
+    print("Merchants recovered.")
+    attributes_list = [merchant['attributes'] for merchant in all_merchants]
+    df_merchants = pd.DataFrame(attributes_list)
+    df_merchants['id'] = [merchant['id'] for merchant in all_merchants]
+    cols = ['id'] + [col for col in df_merchants.columns if col != 'id']
+    df_merchants = df_merchants[cols]
+    print(f"MERCHANTS: {len(df_merchants)}")
+    # df_merchants.to_csv('/content/df_merchants.csv', index=False)
+else:
+    print("Error when recovering merchantes")
+
+
+
+
 #CATEGORIES
 import requests
 from requests.exceptions import HTTPError
