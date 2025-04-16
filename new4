@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 import os
 from utils import Utils
 import json
-import ast  # For safer literal_eval when parsing specifications
 
 utils_obj = Utils('AWS')
 
@@ -143,8 +142,9 @@ def process_product_data(product_data):
                     try:
                         spec_dict = json.loads(spec)
                     except:
-                        # If JSON parsing fails, try Python's literal_eval (safer than eval)
-                        spec_dict = ast.literal_eval(spec)
+                        # If JSON parsing fails, simply log the error
+                        print(f"Error parsing specification JSON for product {product_id}")
+                        spec_dict = {}
                 else:
                     spec_dict = spec
                 
