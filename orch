@@ -1,0 +1,74 @@
+call etl.workflow('lambda-ecs', '{\"function_code_location\":\"s3://datalake-env-s3-code/code/lambda-code/openbrand_api_ecs.zip\",\"event\": {\"custom_date\":\"{dateparm}\"},\"context\":\"{}\"}');
+call etl.bulk_load('s3://datalake-env-s3-data/OpenBrand/OpenBrand_Pricings_{dateparm}.csv', 'etl.stg1_openbrand_pricings');
+call etl.table_setup('etl.stg2_openbrand_pricings');
+
+INSERT INTO etl.stg2_openbrand_pricings
+SELECT 
+    published_date,
+    net_price,
+    shelf_price,
+    in_stock,
+    brand,
+    category_name,
+    merchant,
+    merchant_sku,
+    product,
+    part_number,
+    product_location,
+    deleted,
+    date_collected,
+    promo_percentage,
+    on_promo,
+    on_ad,
+    updated_at
+FROM 
+    (SELECT *, ROW_NUMBER() OVER(PARTITION BY published_date, category_name, merchant, part_number, date_collected ORDER BY date_collected DESC) AS RN
+    FROM etl.stg1_openbrand_pricings)
+WHERE RN = 1
+AND shelf_price >= 0;
+
+INSERT INTO data.openbrand_pricings
+SELECT stg.published_date,
+       stg.net_price,
+       stg.shelf_price,
+       stg.in_stock,
+       stg.brand,
+       stg.category_name,
+       stg.merchant,
+       stg.merchant_sku,
+       stg.product,
+       stg.part_number,
+       stg.product_location,
+       stg.deleted,
+       stg.date_collected,
+       stg.promo_percentage,
+       stg.on_promo,
+       stg.on_ad,
+       stg.updated_at
+FROM (
+    SELECT published_date,
+           net_price,
+           shelf_price,
+           in_stock,
+           COALESCE(brand, 'undefined') as brand,
+           COALESCE(category_name, 'undefined') as category_name,
+           COALESCE(merchant, 'undefined') as merchant,
+           COALESCE(merchant_sku, 'undefined') as merchant_sku,
+           COALESCE(product, 'undefined') as product,
+           COALESCE(part_number, 'undefined') as part_number,
+           COALESCE(product_location, 'undefined') as product_location,
+           deleted,
+           date_collected,
+           promo_percentage,
+           on_promo,
+           on_ad,
+           updated_at
+    FROM etl.stg2_openbrand_pricings
+) stg
+LEFT OUTER JOIN data.openbrand_pricings main
+    ON stg.date_collected = main.date_collected
+    AND COALESCE(stg.category_name::varchar, 'undefined') = main.category_name
+    AND COALESCE(stg.merchant::varchar, 'undefined') = main.merchant
+    AND COALESCE(stg.part_number::varchar, 'undefined') = main.part_number
+    AND stg.date_collected = main.date_collected
+WHERE (main.date_collected IS NULL AND stg.date_collected IS NOT NULL);
