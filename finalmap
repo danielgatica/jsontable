@@ -1,0 +1,365 @@
+import pandas as pd
+import json
+
+
+def process_product_data(product_data):
+    """
+    Process product data to create two dataframes:
+    1. Main product dataframe with specified columns (excluding id, image_url, specification)
+    2. Specification dataframe with columns from column_map
+    
+    Args:
+        product_data: List of product dictionaries with attributes
+        
+    Returns:
+        Tuple containing:
+        - Main product DataFrame with cleaned and standardized columns
+        - Specification DataFrame with normalized structure
+    """
+    attributes_list = []
+    specification_dicts = []
+    
+    # Process main attributes and collect specifications
+    for product in product_data:
+        # Get attributes (shallow copy is sufficient)
+        attributes = product['attributes'].copy() if 'attributes' in product else product.copy()
+        part_number = attributes.get('part_number', '')
+        
+        # Extract specification data if it exists
+        if 'specification' in attributes:
+            try:
+                spec = attributes['specification']
+                # Try to process specification as JSON if it's a string
+                if isinstance(spec, str):
+                    try:
+                        spec_dict = json.loads(spec)
+                    except:
+                        print(f"Error parsing specification JSON for part_number {part_number}")
+                        spec_dict = {}
+                else:
+                    spec_dict = spec
+                
+                # Get the nested data dictionary
+                if isinstance(spec_dict, dict) and 'data' in spec_dict:
+                    data_dict = spec_dict['data'].copy()
+                    # Add part_number for joining later
+                    data_dict['part_number'] = part_number
+                    specification_dicts.append(data_dict)
+            except Exception as e:
+                print(f"Error processing specification for part_number {part_number}: {e}")
+        
+        # Remove columns we don't want in the main dataframe
+        for field in ['id', 'image_url', 'specification']:
+            if field in attributes:
+                del attributes[field]
+        
+        
+        # We don't need to add product_id, using part_number instead
+        attributes_list.append(attributes)
+    
+    # Create main product DataFrame
+    df = pd.DataFrame(attributes_list)
+    
+    # Define columns to keep in the main dataframe
+    columns_to_keep = [
+        'name', 'part_number', 'brand_name', 'category_name', 'product_status',
+        'product_version_id', 'manufacturer_suggested_retail_price', 
+        'estimated_retail_price', 'net_estimated_price', 'average_online_price',
+        'average_retail_dot_com_net_price', 'average_retail_dot_com_weekly_net_price',
+        'average_retail_net_price', 'average_retail_weekly_net_price',
+        'average_ecom_net_price', 'average_ecom_weekly_net_price',
+        'most_frequent_price', 'most_frequent_weekly_price', 'most_frequent_monthly_price',
+        'most_frequent_retail_weekly_price', 'most_frequent_retail_net_price',
+        'deleted'
+    ]
+    
+    # Filter columns if they exist, ignore if not
+    existing_columns = [col for col in columns_to_keep if col in df.columns]
+    df = df[existing_columns].copy()
+    
+    # Add missing columns with default values
+    for col in columns_to_keep:
+        if col not in df.columns:
+            if col == 'deleted':
+                df[col] = False  # Default boolean columns to False
+            elif col == 'product_version_id':
+                df[col] = 0  # Default integer columns to 0
+            elif col in [
+                'manufacturer_suggested_retail_price',
+                'estimated_retail_price',
+                'net_estimated_price',
+                'average_online_price',
+                'average_retail_dot_com_net_price',
+                'average_retail_dot_com_weekly_net_price',
+                'average_retail_net_price',
+                'average_retail_weekly_net_price',
+                'average_ecom_net_price',
+                'average_ecom_weekly_net_price',
+                'most_frequent_price',
+                'most_frequent_weekly_price',
+                'most_frequent_monthly_price',
+                'most_frequent_retail_weekly_price',
+                'most_frequent_retail_net_price'
+            ]:
+                df[col] = 0.0  # Default float columns to 0.0
+            else:
+                df[col] = ''  # Default string columns to empty string
+    
+    # Convert numeric columns to appropriate types
+    float_columns = [
+        'manufacturer_suggested_retail_price',
+        'estimated_retail_price',
+        'net_estimated_price',
+        'average_online_price',
+        'average_retail_dot_com_net_price',
+        'average_retail_dot_com_weekly_net_price',
+        'average_retail_net_price',
+        'average_retail_weekly_net_price',
+        'average_ecom_net_price',
+        'average_ecom_weekly_net_price',
+        'most_frequent_price',
+        'most_frequent_weekly_price',
+        'most_frequent_monthly_price',
+        'most_frequent_retail_weekly_price',
+        'most_frequent_retail_net_price'
+    ]
+    
+    for col in float_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+    
+    # Convert integer columns
+    # Define column mapping for specifications
+    column_map = {
+        "3rd Rack": "third_rack",
+        "AD Compliant": "ad_compliant",
+        "ADA Compliant": "ada_compliant",
+        "Additional Door Capabilities": "additional_door_capabilities",
+        "Appliance Type": "appliance_type",
+        "Auto Cook": "auto_cook",
+        "Auto Dose Dispenser": "auto_dose_dispenser",
+        "Base Color": "base_color",
+        "Bleach Dispenser": "bleach_dispenser",
+        "Brand": "brand",
+        "Broil Element Location": "broil_element_location",
+        "Built-In": "built_in",
+        "Burner Type": "burner_type",
+        "CFM": "cfm",
+        "Capacity": "capacity",
+        "Capacity (cu ft)": "capacity_cu_ft",
+        "Capacity Range (cu ft)": "capacity_range_cu_ft",
+        "Child Lock": "child_lock",
+        "Cleaning Type": "cleaning_type",
+        "Cold Optimized": "cold_optimized",
+        "Color": "color",
+        "Compartment Divider (Yes/No)": "compartment_divider_yes_no",
+        "Configuration": "configuration",
+        "Console Design": "console_design",
+        "Control Type": "control_type",
+        "Convection": "convection",
+        "Convection Type": "convection_type",
+        "Cooktop": "cooktop",
+        "Cooktop Control Location": "cooktop_control_location",
+        "Cooktop Control Method": "cooktop_control_method",
+        "Cooktop Elements": "cooktop_elements",
+        "Cooktop Light": "cooktop_light",
+        "Cooktop Max Output": "cooktop_max_output",
+        "Counter-depth": "counter_depth",
+        "Cycles": "cycles",
+        "DBA Level": "dba_level",
+        "Defrost": "defrost",
+        "Defrost Type": "defrost_type",
+        "Depth": "depth",
+        "Depth (in)": "depth_in",
+        "Depth with Door Open (in)": "depth_with_door_open_in",
+        "Depth with handles (in)": "depth_with_handles_in",
+        "Detergent Dispenser": "detergent_dispenser",
+        "Digital Display": "digital_display",
+        "Display Type": "display_type",
+        "Door Window": "door_window",
+        "Door-in-Door": "door_in_door",
+        "Double Oven": "double_oven",
+        "Downdraft Ventilation": "downdraft_ventilation",
+        "Drawer Type": "drawer_type",
+        "Electric/Gas": "electric_gas",
+        "Element Sizes": "element_sizes",
+        "Energy Consumption (kWh/yr)": "energy_consumption_kwh_yr",
+        "Energy Rating": "energy_rating",
+        "Energy Star": "energy_star",
+        "Evaporator": "evaporator",
+        "Exterior Water and Ice Dispenser": "exterior_water_and_ice_dispenser",
+        "Fabric Softener Dispenser": "fabric_softener_dispenser",
+        "Fold-Down Tines": "fold_down_tines",
+        "Food Disposer": "food_disposer",
+        "Form Factor": "form_factor",
+        "Freezer Capacity (cu ft)": "freezer_capacity_cu_ft",
+        "Fuel Type": "fuel_type",
+        "GTIN13": "gtin13",
+        "Gallon Door Bins": "gallon_door_bins",
+        "Griddle": "griddle",
+        "Handle Color": "handle_color",
+        "Handle Type": "handle_type",
+        "Height": "height",
+        "Height Approx in": "height_approx_in",
+        "Height in": "height_in",
+        "Height with handles (in)": "height_with_handles_in",
+        "Hidden Vent": "hidden_vent",
+        "Humidity Controlled Crispers": "humidity_controlled_crispers",
+        "Icemaker": "icemaker",
+        "Interior Color": "interior_color",
+        "Interior Finish": "interior_finish",
+        "Interior Material": "interior_material",
+        "Interior Refrigerator Light Type": "interior_refrigerator_light_type",
+        "Internal Water Heater": "internal_water_heater",
+        "Load Type": "load_type",
+        "Low Profile": "low_profile",
+        "Matching Washer Load Type": "matching_washer_load_type",
+        "Max Output": "max_output",
+        "Microwave Size (in)": "microwave_size_in",
+        "Microwave Type": "microwave_type",
+        "Number of Compartments": "number_of_compartments",
+        "Number of Doors": "number_of_doors",
+        "Options": "options",
+        "Oven Capacity cu ft": "oven_capacity_cu_ft",
+        "Oven Racks": "oven_racks",
+        "POD Dispenser": "pod_dispenser",
+        "Panel Material": "panel_material",
+        "Part Number": "part_number",
+        "Place Setting Capacity": "place_setting_capacity",
+        "Power": "product_power",
+        "Power (watts)": "power_watts",
+        "Primary Oven Capacity (cu ft)": "primary_oven_capacity_cu_ft",
+        "Product": "product",
+        "Product Debut": "product_debut",
+        "Product Family": "product_family",
+        "Product Size": "product_size",
+        "Product Type": "product_type",
+        "Product Weight (lbs)": "product_weight_lbs",
+        "Range Type": "range_type",
+        "Refrigerator Capacity (cu ft)": "refrigerator_capacity_cu_ft",
+        "Reheat": "reheat",
+        "Sabbath Mode (Yes/No)": "sabbath_mode_yes_no",
+        "Sanitize": "sanitize",
+        "Secondary Oven Capacity (cu ft)": "secondary_oven_capacity_cu_ft",
+        "Self-Cleaning Filter": "self_cleaning_filter",
+        "Sensor": "sensor",
+        "Sensor Clean": "sensor_clean",
+        "Series": "series",
+        "Shelf Type": "shelf_type",
+        "Smart Appliance": "smart_appliance",
+        "Smart-Home Compatibility (Yes/No)": "smart_home_compatibility_yes_no",
+        "Spill proof shelves": "spill_proof_shelves",
+        "Stackable": "stackable",
+        "Steam": "steam",
+        "Tall Door": "tall_door",
+        "Temperature Control Pantry": "temperature_control_pantry",
+        "Temperature Setting Options": "temperature_setting_options",
+        "Timer": "timer",
+        "Total Capacity (cu ft)": "total_capacity_cu_ft",
+        "Tub Material": "tub_material",
+        "Turntable": "turntable",
+        "Turntable Diameter (in)": "turntable_diameter_in",
+        "UPC": "upc",
+        "Virtual Assistant Type": "virtual_assistant_type",
+        "Voice Control": "voice_control",
+        "Warranty": "warranty",
+        "Wash Mechanism": "wash_mechanism",
+        "Water Filter": "water_filter",
+        "Weight lbs": "weight_lbs",
+        "Width": "width",
+        "Width Approx in": "width_approx_in",
+        "Width in": "width_in",
+        "Width with handles (in)": "width_with_handles_in"
+    }
+
+    if 'product_version_id' in df.columns:
+        df['product_version_id'] = pd.to_numeric(df['product_version_id'], errors='coerce').fillna(0).astype(int)
+    
+    # Convert boolean columns
+    if 'deleted' in df.columns:
+        df['deleted'] = df['deleted'].astype(bool)
+    
+    # Process specification dataframe
+    if specification_dicts:
+        # Create DataFrame from specification data
+        specs_df = pd.DataFrame(specification_dicts)
+        
+        # Initialize an empty DataFrame with all possible columns from column_map
+        normalized_columns = sorted(column_map.values()) + ['part_number']
+        df_normalized = pd.DataFrame(columns=normalized_columns)
+        
+        # Rename columns according to the mapping, but only for columns that exist
+        # and are in the mapping
+        rename_dict = {}
+        for col in specs_df.columns:
+            if col in column_map:
+                rename_dict[col] = column_map[col]
+        
+        # Apply the renaming
+        specs_df = specs_df.rename(columns=rename_dict)
+        
+        # Make sure part_number is included
+        if 'part_number' not in specs_df.columns:
+            print("Warning: part_number column missing from specifications")
+        
+        # Merge the normalized structure with the actual data
+        # This ensures we have all columns in the map, even if they're empty
+        for col in normalized_columns:
+            if col not in specs_df.columns:
+                specs_df[col] = None
+        
+        # Return both dataframes
+        return df, specs_df
+    
+    # If no specification data, return empty normalized dataframe
+    else:
+        normalized_columns = sorted(column_map.values()) + ['part_number']
+        df_normalized = pd.DataFrame(columns=normalized_columns)
+        return df, df_normalized
+
+
+# Function to load and process sample.csv
+def load_and_process_sample_csv(csv_file):
+    """
+    Load and process a CSV file containing product data
+    
+    Args:
+        csv_file: Path to the CSV file
+        
+    Returns:
+        Tuple containing:
+        - Main product DataFrame with cleaned and standardized columns
+        - Specification DataFrame with normalized structure
+    """
+    # Read the CSV file
+    df = pd.read_csv(csv_file, delimiter='\t')
+    
+    # Convert dataframe to list of dictionaries for processing
+    products = df.to_dict('records')
+    
+    # Process the data using our existing function
+    return process_product_data(products)
+
+
+
+# Load and process the sample.csv file
+main_df, specs_df = load_and_process_sample_csv('/content/sample.csv')
+
+# Print information about the dataframes
+print("Main DataFrame:")
+print(f"Shape: {main_df.shape}")
+print(f"Columns: {main_df.columns.tolist()}")
+print(main_df.head())
+
+print("\nSpecifications DataFrame:")
+print(f"Shape: {specs_df.shape}")
+print(f"Columns: {specs_df.columns.tolist()[:10]}...")  # Show first 10 columns
+print(specs_df.head())
+
+# Save the results to CSV files
+main_df.to_csv('processed_products.csv', index=False)
+specs_df.to_csv('processed_specifications.csv', index=False)
+
+print("\nProcessing complete. Files saved as 'processed_products.csv' and 'processed_specifications.csv'.")
+# Example usage:
+# main_df, specs_df = load_and_process_sample_csv('sample.csv')
