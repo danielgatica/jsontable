@@ -363,3 +363,68 @@ specs_df.to_csv('processed_specifications.csv', index=False)
 print("\nProcessing complete. Files saved as 'processed_products.csv' and 'processed_specifications.csv'.")
 # Example usage:
 # main_df, specs_df = load_and_process_sample_csv('sample.csv')
+
+
+
+##############################################################################
+
+"Temperature Control Pantry": "temperature_control_pantry",
+            "Temperature Setting Options": "temperature_setting_options",
+            "Timer": "timer",
+            "Total Capacity (cu ft)": "total_capacity_cu_ft",
+            "Tub Material": "tub_material",
+            "Turntable": "turntable",
+            "Turntable Diameter (in)": "turntable_diameter_in",
+            "UPC": "upc",
+            "Virtual Assistant Type": "virtual_assistant_type",
+            "Voice Control": "voice_control",
+            "Warranty": "warranty",
+            "Wash Mechanism": "wash_mechanism",
+            "Water Filter": "water_filter",
+            "Weight lbs": "weight_lbs",
+            "Width": "width",
+            "Width Approx in": "width_approx_in",
+            "Width in": "width_in",
+            "Width with handles (in)": "width_with_handles_in"
+        }
+        
+        # Create DataFrame from specification data
+        specs_df = pd.DataFrame(specification_dicts)
+        
+        # Initialize an empty DataFrame with all possible columns from column_map
+        normalized_columns = sorted(column_map.values()) + ['part_number']
+        df_normalized = pd.DataFrame(columns=normalized_columns)
+        
+        # Rename columns according to the mapping, but only for columns that exist
+        # and are in the mapping
+        rename_dict = {}
+        columns_to_keep = ['part_number']  # Always keep part_number
+        
+        for col in specs_df.columns:
+            if col in column_map:
+                rename_dict[col] = column_map[col]
+                columns_to_keep.append(column_map[col])
+            elif col != 'part_number':
+                # Mark columns for deletion if they're not in the mapping and not part_number
+                pass  # We'll drop them after renaming
+        
+        # Apply the renaming
+        specs_df = specs_df.rename(columns=rename_dict)
+        
+        # Drop columns that aren't in the mapping (except part_number)
+        cols_to_drop = [col for col in specs_df.columns if col not in columns_to_keep]
+        if cols_to_drop:
+            specs_df = specs_df.drop(columns=cols_to_drop)
+        
+        # Make sure part_number is included
+        if 'part_number' not in specs_df.columns:
+            print("Warning: part_number column missing from specifications")
+        
+        # Merge the normalized structure with the actual data
+        # This ensures we have all columns in the map, even if they're empty
+        for col in normalized_columns:
+            if col not in specs_df.columns:
+                specs_df[col] = None
+        
+        # Return both dataframes
+        return df, specs_df
