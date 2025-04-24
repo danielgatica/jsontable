@@ -1,0 +1,33 @@
+**************************************************
+****** running SQL file ==> scripts\load_openbrand_api.sql  at: 2025-04-23 09:00:12
+**************************************************
+-->Started at: 2025-04-23 09:00:13 
+call etl.workflow('lambda-ecs', '{\"function_code_location\":\"s3://datalake-prd-s3-code/code/lambda-code/openbrand_api_ecs.zip\",\"event\": {\"custom_date\":\"2025-04-22\"},\"context\":\"{}\"}')
+**************************************************
+Error Occured:
+Traceback (most recent call last):
+  File "run_sql_file.py", line 43, in run_sql
+    cur.execute(sql)
+pyodbc.Error: ('P0001', '[P0001] [Amazon][Amazon Redshift] (30) Error occurred while trying to execute a query: [SQLState P0001] ERROR:  Status: FAILED  \'{"Attachments":[{"Details":[{"Name":"subnetId","Value":"subnet-6493be3c"},{"Name":"networkInterfaceId","Value":"eni-0ffc5957d51738845"},{"Name":"macAddress","Value":"0e:60:bd:dc:1e:19"},{"Name":"privateDnsName","Value":"ip-10-4-89-146.ec2.internal"},{"N\n (30) (SQLExecDirectW); [P0001] INFO:  Env: Prod\n (0); [P0001] INFO:  Workflow: lambda-ecs\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: FAILED\n (0)')
+
+**************************************************
+(<class 'pyodbc.Error'>, Error('P0001', '[P0001] [Amazon][Amazon Redshift] (30) Error occurred while trying to execute a query: [SQLState P0001] ERROR:  Status: FAILED  \'{"Attachments":[{"Details":[{"Name":"subnetId","Value":"subnet-6493be3c"},{"Name":"networkInterfaceId","Value":"eni-0ffc5957d51738845"},{"Name":"macAddress","Value":"0e:60:bd:dc:1e:19"},{"Name":"privateDnsName","Value":"ip-10-4-89-146.ec2.internal"},{"N\n (30) (SQLExecDirectW); [P0001] INFO:  Env: Prod\n (0); [P0001] INFO:  Workflow: lambda-ecs\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: FAILED\n (0)'), <traceback object at 0x00000251E53CD948>)
+**************************************************
+Error Occured:
+Traceback (most recent call last):
+  File "run_sql_file.py", line 43, in run_sql
+    cur.execute(sql)
+pyodbc.Error: ('P0001', '[P0001] [Amazon][Amazon Redshift] (30) Error occurred while trying to execute a query: [SQLState P0001] ERROR:  Status: FAILED  \'{"Attachments":[{"Details":[{"Name":"subnetId","Value":"subnet-6493be3c"},{"Name":"networkInterfaceId","Value":"eni-0ffc5957d51738845"},{"Name":"macAddress","Value":"0e:60:bd:dc:1e:19"},{"Name":"privateDnsName","Value":"ip-10-4-89-146.ec2.internal"},{"N\n (30) (SQLExecDirectW); [P0001] INFO:  Env: Prod\n (0); [P0001] INFO:  Workflow: lambda-ecs\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: FAILED\n (0)')
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "run_sql_file.py", line 132, in <module>
+    run_sql_file(sqlfile,env,dateparm)
+  File "run_sql_file.py", line 86, in run_sql_file
+    run_sql(sql,1)
+  File "run_sql_file.py", line 60, in run_sql
+    raise Exception(sys.exc_info())
+Exception: (<class 'pyodbc.Error'>, Error('P0001', '[P0001] [Amazon][Amazon Redshift] (30) Error occurred while trying to execute a query: [SQLState P0001] ERROR:  Status: FAILED  \'{"Attachments":[{"Details":[{"Name":"subnetId","Value":"subnet-6493be3c"},{"Name":"networkInterfaceId","Value":"eni-0ffc5957d51738845"},{"Name":"macAddress","Value":"0e:60:bd:dc:1e:19"},{"Name":"privateDnsName","Value":"ip-10-4-89-146.ec2.internal"},{"N\n (30) (SQLExecDirectW); [P0001] INFO:  Env: Prod\n (0); [P0001] INFO:  Workflow: lambda-ecs\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: RUNNING\n (0); [P0001] INFO:  Status: FAILED\n (0)'), <traceback object at 0x00000251E53CD948>)
+
+**************************************************
